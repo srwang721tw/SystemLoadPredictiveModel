@@ -1,0 +1,33 @@
+# --- 虛擬環境 ---
+.venv/
+venv/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# --- 資料 ---
+# Accuweather 年度檔（各 280–410 MB）超過 GitHub 單檔上限，需自行放入 data/raw/Accuweather/
+data/raw/Accuweather/*天氣預測詳細表_*.csv
+# 更新檢查的內容快照、由程式重建的中間檔、未使用的資料
+data/raw/_backup/
+data/processed/*
+!data/processed/.gitkeep
+data/unused/
+
+# --- 輸出 ---
+# 回測紀錄（output/backtest/）、回歸測試的參考輸出（output/reference/）、notebook 產生的圖（output/figures/）進版控；
+# 其餘由指令重新產生。
+output/evaluation/
+output/submission/
+output/reports/
+logs/*
+!logs/.gitkeep
+
+# --- 其他 ---
+*.pkl
+*.joblib
+.DS_Store

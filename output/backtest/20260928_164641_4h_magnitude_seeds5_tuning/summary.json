@@ -1,0 +1,132 @@
+{
+  "label": "4h_magnitude_seeds5",
+  "group": "tuning",
+  "weather_mode": "honest",
+  "observed_lag_days": 0,
+  "overrides": {
+    "MAGNITUDE_N_SEEDS": 5
+  },
+  "created": "2026-09-28T18:11:26",
+  "runtime_seconds": 5095.2,
+  "git": {
+    "commit": "c8001c48fca749f9a3a367cad761743d52cdc7de",
+    "dirty": false
+  },
+  "manifest_sha256": "626bf8d2cb52ecc91a82d6fe5dfe242e322455e03ff50cfcddaf36a715bd9427",
+  "data_matches_manifest": true,
+  "files_changed": [],
+  "data_available_end": "2026-06-30",
+  "n_windows": 78,
+  "skipped": [],
+  "overall": {
+    "n": 78,
+    "total_score": 1.0638843724823306,
+    "stderr": 0.06872392918872024,
+    "worst": 2.8258227706735437,
+    "worst_origin": "2025-08-01",
+    "s_peak_mw": 0.02457691958900794,
+    "s_peak_time": 6.629967503385133,
+    "s_ramp_up": 0.1775434459849326,
+    "s_ramp_down": 0.14805441960687926,
+    "s_under_penalty": 0.013206136362727858
+  },
+  "subsets": {
+    "同季節": {
+      "n": 21,
+      "total_score": 0.7593690673857191,
+      "stderr": 0.08679620946052317,
+      "worst": 1.7549876639707975,
+      "worst_origin": "2025-09-20",
+      "s_peak_mw": 0.025398666982740365,
+      "s_peak_time": 4.621586442102962,
+      "s_ramp_up": 0.18538190776206168,
+      "s_ramp_down": 0.15135955708488416,
+      "s_under_penalty": 0.007948659007832965
+    },
+    "週四五六": {
+      "n": 11,
+      "total_score": 1.2148643580591332,
+      "stderr": 0.21775393092931042,
+      "worst": 2.4227220787073573,
+      "worst_origin": "2025-06-11",
+      "s_peak_mw": 0.022718736300905564,
+      "s_peak_time": 7.691635715941695,
+      "s_ramp_up": 0.16245247888642858,
+      "s_ramp_down": 0.13555628370629152,
+      "s_under_penalty": 0.00956425868374214
+    },
+    "含週六": {
+      "n": 35,
+      "total_score": 1.0538920647063272,
+      "stderr": 0.11192333217166539,
+      "worst": 2.8258227706735437,
+      "worst_origin": "2025-08-01",
+      "s_peak_mw": 0.021052547466472823,
+      "s_peak_time": 6.548928579608216,
+      "s_ramp_up": 0.20322157105864624,
+      "s_ramp_down": 0.16402558091371935,
+      "s_under_penalty": 0.012035455535042539
+    },
+    "夏月末期": {
+      "n": 18,
+      "total_score": 0.6273480733619775,
+      "stderr": 0.05332619392079167,
+      "worst": 0.9613621622684594,
+      "worst_origin": "2025-09-26",
+      "s_peak_mw": 0.023141686061924138,
+      "s_peak_time": 3.726176097980919,
+      "s_ramp_up": 0.2052504987478484,
+      "s_ramp_down": 0.16633278068741297,
+      "s_under_penalty": 0.007115794146766548
+    },
+    "含連假或停班": {
+      "n": 27,
+      "total_score": 1.0288146764368835,
+      "stderr": 0.09164934441204575,
+      "worst": 1.8458358768122682,
+      "worst_origin": "2026-04-04",
+      "s_peak_mw": 0.027744887797954206,
+      "s_peak_time": 6.317270153069377,
+      "s_ramp_up": 0.2520607918438137,
+      "s_ramp_down": 0.18033705936142996,
+      "s_under_penalty": 0.008734396084989427
+    }
+  },
+  "contribution": [
+    {
+      "component": "s_peak_time",
+      "raw": 6.629967503385133,
+      "weight": 0.15,
+      "contribution": 0.99449512550777,
+      "share": 0.9347774544214268
+    },
+    {
+      "component": "s_ramp_up",
+      "raw": 0.1775434459849326,
+      "weight": 0.15,
+      "contribution": 0.02663151689773989,
+      "share": 0.025032341471095534
+    },
+    {
+      "component": "s_ramp_down",
+      "raw": 0.14805441960687926,
+      "weight": 0.1,
+      "contribution": 0.014805441960687928,
+      "share": 0.01391640139063498
+    },
+    {
+      "component": "s_peak_mw",
+      "raw": 0.02457691958900794,
+      "weight": 0.6,
+      "contribution": 0.014746151753404763,
+      "share": 0.013860671455299222
+    },
+    {
+      "component": "s_under_penalty",
+      "raw": 0.013206136362727858,
+      "weight": 1.0,
+      "contribution": 0.013206136362727858,
+      "share": 0.01241313126154336
+    }
+  ]
+}

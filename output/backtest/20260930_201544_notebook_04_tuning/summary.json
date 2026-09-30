@@ -4,10 +4,10 @@
   "weather_mode": "honest",
   "observed_lag_days": 0,
   "overrides": {},
-  "created": "2026-09-29T13:44:40",
-  "runtime_seconds": 914.7,
+  "created": "2026-09-30T20:30:29",
+  "runtime_seconds": 887.5,
   "git": {
-    "commit": "fc99d6593cdc77d80e45fbbb156a9ca6653354ec",
+    "commit": "740269c5603d3d7057711f61de232708fff65b64",
     "dirty": true
   },
   "manifest_sha256": "ecda90d93d378091edd4cbb09e7f42fca63a2a97447c50045a3fa47b6466ab49",

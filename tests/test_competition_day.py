@@ -280,10 +280,10 @@ def test_full_day_uses_no_weather_model_and_partial_uses_persistence(degraded) -
     assert missing[DAYS[1]] == ("臺北",)
     assert set(missing[DAYS[2]]) == set(settings.WEATHER_STATIONS)
 
-    curves, _ = workflow.predict_days(ORIGIN, DAYS)
+    curves, _, _ = workflow.predict_days(ORIGIN, DAYS)
     with workflow.temporary_settings(ENABLE_TIER1_WEATHER=False, TIMING_TEMPERATURE_BINS=1,
                                      FORECAST_MISSING_CELLS=missing):
-        no_weather, _ = workflow._predict_curves(ORIGIN, DAYS)
+        no_weather, _, _ = workflow._predict_curves(ORIGIN, DAYS)
     assert np.array_equal(curves[DAYS[2]], no_weather[DAYS[2]])
     assert not np.array_equal(curves[DAYS[0]], no_weather[DAYS[0]])
     assert settings.FORECAST_MISSING_CELLS == {}          # 暫時設定已還原
@@ -303,9 +303,9 @@ def test_missing_windy_day_uses_model_without_windy(monkeypatch) -> None:
         pl.col("forecast_time").dt.date() != DAYS[2]))
 
     assert checks.precheck(ORIGIN, DAYS)["windy_missing"] == [DAYS[2]]
-    curves, _ = workflow.predict_days(ORIGIN, DAYS)
+    curves, _, _ = workflow.predict_days(ORIGIN, DAYS)
     with workflow.temporary_settings(ENABLE_WINDY=False):
-        without, _ = workflow._predict_curves(ORIGIN, DAYS)
+        without, _, _ = workflow._predict_curves(ORIGIN, DAYS)
     assert np.array_equal(curves[DAYS[2]], without[DAYS[2]])
     assert not np.array_equal(curves[DAYS[0]], without[DAYS[0]])
 

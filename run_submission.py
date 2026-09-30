@@ -20,7 +20,8 @@
 4. 資料清理與去除重複，重建中間檔
 5. 以鎖定設定重新訓練
 6. 預測 432 筆
-7. 驗證提交檔（列數、時間戳、缺值、數值範圍、格式、讀回推導 6 目標）
+7. 驗證提交檔（列數、時間戳、缺值、數值範圍、格式、讀回推導 6 目標），
+   並以獨立的主辦單位計分程式（``organizer_score.py``）重算 6 個量，與模型預測比對
 8. 輸出提交檔，並接受本次資料（寫入 manifest 與內容快照）
 9. 印出摘要（資料版本、各檢查結果、執行時間）
 
@@ -79,17 +80,18 @@ def main(accept: bool = True) -> int:
         step("3 前置檢查", lambda: checks.precheck(origin, days))
         step("4 清理、去重與重建中間檔", workflow.build_processed)
         step("5–6 重新訓練並預測 432 筆", lambda: workflow.predict_days(origin, days))
-        curves, intended = state["5–6 重新訓練並預測 432 筆"]
+        curves, intended, requested = state["5–6 重新訓練並預測 432 筆"]
 
         def validate_and_write():
             frame = submission.build_submission(curves)
             path = submission.write_submission(frame)
             submission.validate_submission(path, intended)
+            repairs = submission.organizer_check(path, intended, requested)
             imputed = state["4 清理、去重與重建中間檔"][0]
-            return path, submission.check_window_and_range(path, days, imputed)
+            return path, submission.check_window_and_range(path, days, imputed), repairs
 
         step("7 驗證提交檔", validate_and_write)
-        path, value_range = state["7 驗證提交檔"]
+        path, value_range, repairs = state["7 驗證提交檔"]
         if accept:
             step("8 接受本次資料", lambda: manifest.accept(state["1 資料更新檢查"]["manifest"]))
     except Exception as error:  # noqa: BLE001 —— 任何失敗都要印出已完成的摘要再中止
@@ -103,6 +105,7 @@ def main(accept: bool = True) -> int:
         "history_changed": check["history_changed"],
         "files_changed": [f["path"] for f in check["files"] if f["status"] != "unchanged"],
         "value_range": value_range,
+        "repairs": repairs,
         "codis": state["3 前置檢查"],
     }
     _print_summary(summary, path)
@@ -125,6 +128,8 @@ def _print_summary(summary: dict, path) -> None:
             f"  本次變動的檔案：{summary['files_changed'] or '無'}",
             f"  歷史區段變動：{'有（詳見 log）' if summary['history_changed'] else '無'}",
             f"  數值範圍：{summary['value_range']['min']:.0f} ~ {summary['value_range']['max']:.0f} MW",
+            "  主辦單位計分程式複核：6 個量與模型預測一致"
+            + (f"（合成時放寬的 ramp：{'；'.join(summary['repairs'])}）" if summary["repairs"] else ""),
             f"  CODiS 觀測至：{summary['codis']['codis_observed_end']}"
             + (f"（{', '.join(map(str, summary['codis']['codis_filled']))} 以校正後的預報補上）"
                if summary["codis"]["codis_filled"] else ""),

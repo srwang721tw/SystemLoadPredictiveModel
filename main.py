@@ -9,6 +9,7 @@
     python main.py backtest --label X # 回測框架：調參組或保留組，寫出紀錄
     python main.py backtest-compare --reference A --candidate B   # 兩份回測紀錄配對比較
     python main.py rehearse --data-end 2026-06-27                  # 比賽當天流程演練並評分
+    python main.py verify-curves [--label notebook_04]             # 以主辦單位計分程式複核回測紀錄
 
 所有參數由 ``config/`` 驅動。
 """
@@ -176,7 +177,45 @@ def cmd_rehearse(args: argparse.Namespace) -> int:
     logger.warning("演練 %s ~ %s：total_score %.5f（總耗時 %.1f 秒）\n%s",
                    truth["date"].min(), truth["date"].max(), breakdown.total_score, seconds,
                    metrics.contribution_breakdown(breakdown))
-    return 0
+
+    # 以獨立的主辦單位計分程式，從提交檔的 432 點與實際的 10 分鐘負載再算一次。
+    import organizer_score
+
+    submitted = organizer_score.read_curves(paths.SUBMISSION_DIR / settings.SUBMISSION_LATEST_NAME)
+    clean = pl.read_parquet(paths.CLEAN_LOAD_FILE).sort("ts")
+    actual = [organizer_score.daily_targets(
+        clean.filter(pl.col("ts").dt.date() == day)["Load_MW"].to_list()) for day in submitted]
+    official = organizer_score.score(actual, [organizer_score.daily_targets(v) for v in submitted.values()])
+    same = abs(official["total_score"] - breakdown.total_score) < 1e-9
+    logger.warning("主辦單位計分程式重算：total_score %.5f（%s）", official["total_score"],
+                   "與上方一致" if same else "與上方不一致")
+    return 0 if same else 1
+
+
+def cmd_verify_curves(args: argparse.Namespace) -> int:
+    """以主辦單位計分程式（``organizer_score.py``）複核一份回測紀錄的 432 點曲線與分數。
+
+    預設複核 notebook 04 最新的一份紀錄；``--label`` 可指定其他紀錄。
+
+    Returns:
+        int: 0 表示全部一致；1 表示有不一致（明細寫在 log）。
+    """
+    from src.evaluation import backtest, verify
+
+    folder = backtest.find_run(args.label or "notebook_04", args.group)
+    if not (folder / "curves.csv").exists():
+        logger.error("%s 沒有 curves.csv，請重跑這份回測", folder.name)
+        return 1
+    result = verify.verify_run(folder)
+    with pl.Config(tbl_rows=50, tbl_cols=10, fmt_str_lengths=40):
+        logger.warning("複核 %s（%d 窗）：%s\n%s", folder.name, result["n_windows"],
+                       "全部一致" if result["ok"] else "有不一致", result["checks"])
+        if result["repairs"] is not None:
+            logger.warning("合成時修補的 ramp（%d 筆；其餘 4 個量與模型原始輸出完全相同）：\n%s",
+                           result["repairs"].height, result["repairs"])
+        if result["mismatches"] is not None:
+            logger.error("不一致明細：\n%s", result["mismatches"])
+    return 0 if result["ok"] else 1
 
 
 COMMANDS = {
@@ -187,6 +226,7 @@ COMMANDS = {
     "backtest": cmd_backtest,
     "backtest-compare": cmd_backtest_compare,
     "rehearse": cmd_rehearse,
+    "verify-curves": cmd_verify_curves,
 }
 """指令 → 處理函式。新增指令只需在此登記一處（argparse 的選項也由此產生）。"""
 
@@ -200,7 +240,8 @@ def build_parser() -> argparse.ArgumentParser:
                              "observed（目標日也用觀測，樂觀）／forecast（全部用預報）")
     parser.add_argument("--group", choices=("tuning", "holdout"), default="tuning",
                         help="backtest 的回測組：tuning 調參組（預設）／holdout 保留確認組")
-    parser.add_argument("--label", help="backtest 這次實驗的名稱（必填）")
+    parser.add_argument("--label", help="backtest 這次實驗的名稱（必填）；verify-curves 要複核的紀錄名稱"
+                                         "（預設 notebook_04）")
     parser.add_argument("--observed-lag-days", type=int, default=0,
                         help="backtest 模擬 CODiS 觀測只到起點前第幾天（預設 0）")
     parser.add_argument("--confirm-holdout", action="store_true",

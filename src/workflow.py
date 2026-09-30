@@ -192,8 +192,9 @@ def predict_days(origin: dt.date, days: list[dt.date]) -> tuple[dict, dict]:
         ValueError: 前置檢查未通過（負載或 CODiS 涵蓋不足，見 ``checks.precheck``）。
 
     Returns:
-        tuple: ``(curves, intended)``——``{日期: 144 點曲線}`` 與
-            ``{日期: 合成後實際達成的 6 目標}``（供寫檔後讀回驗證）。
+        tuple: ``(curves, intended, requested)``——``{日期: 144 點曲線}``、
+            ``{日期: 合成後實際達成的 6 目標}``（供寫檔後讀回驗證），以及
+            ``{日期: 模型原始預測的 6 目標}``（合成修補之前，兩者只可能在 ramp 上不同）。
     """
     from src.data import checks
 
@@ -208,7 +209,7 @@ def predict_days(origin: dt.date, days: list[dt.date]) -> tuple[dict, dict]:
         no_windy = day in status["windy_missing"]
         groups.setdefault((no_weather, no_windy), []).append(day)
 
-    curves, intended = {}, {}
+    curves, intended, requested = {}, {}, {}
     for (no_weather, no_windy), group_days in groups.items():
         overrides = {"FORECAST_MISSING_CELLS": dict(missing)}
         if no_weather:
@@ -219,10 +220,11 @@ def predict_days(origin: dt.date, days: list[dt.date]) -> tuple[dict, dict]:
             logger.warning("Plan B：%s 改用不含%s的模型", group_days,
                            "、".join(n for n, f in (("氣象", no_weather), ("Windy", no_windy)) if f))
         with temporary_settings(**overrides):
-            group_curves, group_intended = _predict_curves(origin, days)
+            group_curves, group_intended, group_requested = _predict_curves(origin, days)
         for day in group_days:
             curves[day], intended[day] = group_curves[day], group_intended[day]
-    return curves, intended
+            requested[day] = group_requested[day]
+    return curves, intended, requested
 
 
 def predict_window(origin: dt.date) -> pl.DataFrame:
@@ -235,7 +237,7 @@ def predict_window(origin: dt.date) -> pl.DataFrame:
         pl.DataFrame: ``origin, ts, predicted, actual``，每天 144 列。
     """
     days = [origin + dt.timedelta(days=k) for k in range(1, settings.PREDICT_HORIZON_DAYS + 1)]
-    curves, _ = predict_days(origin, days)
+    curves, _, _ = predict_days(origin, days)
     predicted = pl.concat([
         pl.DataFrame({
             "ts": pl.datetime_range(dt.datetime.combine(day, dt.time(0)),
@@ -263,7 +265,7 @@ def temporary_settings(**overrides):
             setattr(settings, name, value)
 
 
-def _predict_curves(origin: dt.date, days: list[dt.date]) -> tuple[dict, dict]:
+def _predict_curves(origin: dt.date, days: list[dt.date]) -> tuple[dict, dict, dict]:
     """:func:`predict_days` 的本體：依目前的 settings 訓練、預測 6 目標、合成曲線。"""
     from src.models import curve
 
@@ -275,7 +277,7 @@ def _predict_curves(origin: dt.date, days: list[dt.date]) -> tuple[dict, dict]:
     }
     raw_targets = target_fn(history, tuple(days))
 
-    curves, intended = {}, {}
+    curves, intended, requested = {}, {}, {}
     for index, day in enumerate(days):
         wanted = curve.DayTargets(
             float(raw_targets["p_day"][index]), int(raw_targets["t_day"][index]),
@@ -288,27 +290,28 @@ def _predict_curves(origin: dt.date, days: list[dt.date]) -> tuple[dict, dict]:
         )
         curves[day] = values
         intended[day] = realised
+        requested[day] = wanted
         if notes:
             logger.warning("%s 的目標經過調整：%s", day, notes)
-    return curves, intended
+    return curves, intended, requested
 
 
-def _recording(predict_fn, store: list, curves: list | None = None):
+def _recording(predict_fn, store: list, *tagged: list):
     """包住預測函式，記下每折的逐日預測（不改變回傳值）。
 
-    ``curves`` 是曲線預測器附加曲線的同一個串列；本折新增的曲線補上起點欄。
+    ``tagged`` 是曲線預測器附加曲線、原始目標的串列；本折新增的項目補上起點欄。
     """
     def wrapped(history: pl.DataFrame, target_dates: tuple[dt.date, ...]) -> pl.DataFrame:
-        before = len(curves) if curves is not None else 0
+        before = [len(items) for items in tagged]
         result = predict_fn(history, target_dates)
         origin = history["date"].max()
         store.append(result.with_columns(
             pl.Series("date", sorted(target_dates)),
             pl.lit(origin).alias("origin"),
         ))
-        if curves is not None:
-            for index in range(before, len(curves)):
-                curves[index] = curves[index].with_columns(pl.lit(origin).alias("origin"))
+        for items, start in zip(tagged, before):
+            for index in range(start, len(items)):
+                items[index] = items[index].with_columns(pl.lit(origin).alias("origin"))
         return result
     return wrapped
 
@@ -331,8 +334,9 @@ def evaluate(
             大於 0 時每折重建一次資料，只支援 honest 模式。
 
     Returns:
-        dict: ``table``（逐折分數）、``predictions``（逐日 6 目標）、``curves``（逐窗 432 點
-            預測與實際值；遞迴對照與觀測延遲模擬時為 None）、``summary``、
+        dict: ``table``（逐折分數）、``predictions``（逐日 6 目標，由合成曲線推導）、
+            ``curves``（逐窗 432 點預測與實際值）、``raw_targets``（模型的原始 6 目標，
+            合成修補之前；後兩者在遞迴對照與觀測延遲模擬時為 None）、``summary``、
             ``specials``（子集）、``stats``（曲線修補次數）、``folds``。
 
     Raises:
@@ -351,6 +355,7 @@ def _evaluate(weather_mode: str, fold_indices: list[int] | None, output_dir: Pat
               folds: list | None, observed_lag_days: int) -> dict:
     """:func:`evaluate` 的本體。"""
     from src.evaluation import cv, metrics
+    from src.features.targets import TARGET_NAMES
     from src.models import pipeline
 
     daily, clean, attributes, target_fn, _, _ = prepare_context(weather_mode=weather_mode)
@@ -363,6 +368,7 @@ def _evaluate(weather_mode: str, fold_indices: list[int] | None, output_dir: Pat
     stats: dict = {}
     predictions: list = []
     curves: list = []
+    raw: list = []
     if observed_lag_days:
         table = _run_with_observation_lag(folds, observed_lag_days, stats, predictions)
     elif settings.MODEL_VARIANT == "recursive_ar":
@@ -371,8 +377,8 @@ def _evaluate(weather_mode: str, fold_indices: list[int] | None, output_dir: Pat
         table = cv.run_cv(daily, folds, _recording(recursive.make_recursive_predictor(clean), predictions))
     else:
         table = cv.run_cv(daily, folds, _recording(
-            pipeline.make_curve_predictor(attributes, target_fn, stats, clean, curves), predictions,
-            curves))
+            pipeline.make_curve_predictor(attributes, target_fn, stats, clean, curves, raw), predictions,
+            curves, raw))
     summary = cv.summarize_cv(table)
 
     breakdown = metrics.ScoreBreakdown(*[float(table[c].mean()) for c in (
@@ -409,7 +415,12 @@ def _evaluate(weather_mode: str, fold_indices: list[int] | None, output_dir: Pat
             clean.select("ts", pl.col("Load_MW").alias("actual")), on="ts", how="left"
         ).select("origin", "ts", "predicted", "actual")
         curve_table.write_csv(output_dir / f"curves_{weather_mode}.csv")
-    return {"table": table, "predictions": predicted, "curves": curve_table, "summary": summary,
+    raw_table = None
+    if raw:
+        raw_table = pl.concat(raw).select("origin", "date", *TARGET_NAMES).sort("origin", "date")
+        raw_table.write_csv(output_dir / f"raw_targets_{weather_mode}.csv")
+    return {"table": table, "predictions": predicted, "curves": curve_table, "raw_targets": raw_table,
+            "summary": summary,
             "specials": specials, "stats": stats, "folds": folds}
 
 

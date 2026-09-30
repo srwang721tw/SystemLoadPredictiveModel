@@ -207,6 +207,51 @@ def validate_submission(
     return pl.DataFrame(rows)
 
 
+def organizer_check(
+    path: Path, intended: dict[dt.date, DayTargets], requested: dict[dt.date, DayTargets]
+) -> list[str]:
+    """用獨立的主辦單位計分程式（``organizer_score.py``）讀提交檔，重算每天 6 個量。
+
+    與 :func:`validate_submission` 互為備援：兩者分別用獨立的程式推導，都相符才算通過。
+
+    Args:
+        path: 提交檔路徑。
+        intended: ``{日期: 合成後實現的 6 個量}``，必須完全相符。
+        requested: ``{日期: 模型原始預測的 6 個量}``。合成時只可能放寬 ramp，差異逐筆回報。
+
+    Returns:
+        list[str]: 與模型原始預測不同的 ramp（日期、項目、原值 → 合成後），沒有則為空。
+
+    Raises:
+        ValueError: 與合成後實現的值不符，或時刻、尖峰負載與模型原始預測不同。
+    """
+    import organizer_score
+
+    derived = organizer_score.read_curves(path)
+    problems, repairs = [], []
+    for day in sorted(intended):
+        if day not in derived:
+            raise ValueError(f"主辦單位計分程式讀不到 {day}")
+        got = organizer_score.daily_targets(derived[day])
+        for name in target_module.TARGET_NAMES:
+            have = float(got[name])
+            for label, source in (("合成後", intended), ("模型原始", requested)):
+                want = float(getattr(source[day], name))
+                # 合成的浮點運算會留下約 1e-6 MW 的差異；與模型原始值比對時採合成器自身的容許誤差。
+                tolerance = 1e-6 if label == "合成後" else 1e-3
+                same = have == want if name.startswith("t_") else abs(have - want) <= tolerance
+                if same:
+                    continue
+                if label == "模型原始" and name in ("ramp_up", "ramp_down"):
+                    repairs.append(f"{day} {name} {want:.1f} → {have:.1f}")
+                else:
+                    problems.append(f"{day} {name}：{label} {want}、主辦單位計分程式 {have}")
+    if problems:
+        raise ValueError("主辦單位計分程式複核失敗：\n  " + "\n  ".join(problems))
+    logger.info("主辦單位計分程式複核通過：%d 天 × 6 個量", len(intended))
+    return repairs
+
+
 def check_window_and_range(
     path: Path, days: list[dt.date], history: pl.DataFrame
 ) -> dict[str, float]:

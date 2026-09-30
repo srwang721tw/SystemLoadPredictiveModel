@@ -230,6 +230,7 @@ def make_curve_predictor(
     stats: dict | None = None,
     clean: pl.DataFrame | None = None,
     curves: list | None = None,
+    raw: list | None = None,
 ):
     """把 6 目標預測器包成「經過曲線」的預測器。
 
@@ -244,6 +245,7 @@ def make_curve_predictor(
         clean: 10 分鐘序列（含 ``date``、``mod``、``price_daytype``、``is_summer``）。給定時，
             曲線形狀取自起點以前的同組日（``curve.shape_template``），與提交流程相同。
         curves: 選填的串列，每個目標日附加一張 ``date, ts, predicted`` 的 144 列表。
+        raw: 選填的串列，每個目標日附加一列模型的原始 6 目標（合成修補之前）。
 
     Returns:
         PredictFn: 符合 ``src.evaluation.cv.PredictFn`` 的預測函式。
@@ -267,6 +269,9 @@ def make_curve_predictor(
                 float(predicted["p_night"][index]), int(predicted["t_night"][index]),
                 float(predicted["ramp_up"][index]), float(predicted["ramp_down"][index]),
             )
+            if raw is not None:
+                raw.append(pl.DataFrame([{"date": target_date,
+                                           **{n: getattr(wanted, n) for n in TARGET_NAMES}}]))
             shape = None
             if clean is not None:
                 shape = curve.shape_template(

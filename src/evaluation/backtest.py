@@ -324,8 +324,9 @@ def run(
     # evaluate 的檔名帶模式名；紀錄目錄內只有一種模式，改成固定檔名。
     (folder / f"folds_{weather_mode}.csv").rename(folder / "folds.csv")
     (folder / f"predictions_{weather_mode}.csv").rename(folder / "predictions.csv")
-    if (folder / f"curves_{weather_mode}.csv").exists():
-        (folder / f"curves_{weather_mode}.csv").rename(folder / "curves.csv")
+    for name in ("curves", "raw_targets"):
+        if (folder / f"{name}_{weather_mode}.csv").exists():
+            (folder / f"{name}_{weather_mode}.csv").rename(folder / f"{name}.csv")
     summary = {
         "label": label,
         "group": group,

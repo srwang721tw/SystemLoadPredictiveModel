@@ -411,7 +411,14 @@ $$\ell_\tau(y,q)=\begin{cases}\tau\,(y-q) & y\ge q\ \text{（低估）}\\(1-\tau
   - 全日最大上升等於 `ramp_up`
   - 全日最大下降等於 `ramp_down`
 - **形狀模板**：錨點之間的形狀取自起點以前、與目標日同日別同夏月的最近 120 個日子。每天先把負載縮放到 0–1 再逐點取中位數，所以形狀與負載水準無關。
-- **保證**：合成器確保由曲線推導出的 6 個量等於目標值，而且極大值嚴格唯一，避免並列時被取到較早的時刻。寫檔後讀回，再用同一支推導程式逐項比對。
+- **保證**：合成器確保由曲線推導出的 6 個量等於目標值，而且極大值嚴格唯一，避免並列時被取到較早的時刻。
+- **修補**：少數日子模型預測的 6 個量互相衝突，組不成任何曲線。
+  - 例如 `t_day` = 17:00 時，17:10 必須低於 `p_night`，下降幅度可能超過預測的 `ramp_down`。
+  - 這時只放寬 `ramp_down`，必要時再放寬 `ramp_up`；時刻與尖峰負載絕不更動。
+- **複核**：曲線寫成檔案後，用兩支互相獨立的程式各自讀回、推導 6 個量，並與模型預測逐項比對。
+  - `src/features/targets.py`：專案本身的推導。
+  - `organizer_score.py`：只用 Python 標準函式庫，依比賽規則重寫推導與評分，不 import 專案程式。
+  - 回測紀錄也用同一支程式全部重算，見第 6 節的 `verify-curves`。
 
 #### 有幾個模型、哪個最好、有沒有集成
 
@@ -546,6 +553,20 @@ honest 模式：目標日只用預報，與比賽當天相同。
 | $s_{under\_penalty}$ | 0.013 | 1.00 | 0.013 | 1.3% |
 
 同季節子集的時刻損失是 $t_{night}$ 5.29、$t_{day}$ 3.99：在提交的季節，夜尖峰比日尖峰難。
+
+### 以主辦單位計分程式複核
+
+`python main.py verify-curves` 用獨立的 `organizer_score.py`，把調參組 78 窗、234 天的 432 點曲線全部重算一次（notebook 05 第 12 節）：
+
+| 比對 | 筆數 | 不一致 | 最大差異 |
+|---|---:|---:|---:|
+| 預測曲線推導的 6 個量 vs 合成後的值 | 1,404 | 0 | 0 |
+| 預測曲線推導的 6 個量 vs 模型原始輸出 | 1,404 | 0 | 0.000001 MW |
+| 實際曲線推導的 6 個量 vs 標籤 | 1,404 | 0 | 0 |
+| 逐窗 5 個子項與 total_score vs 回測紀錄 | 468 | 0 | 4 × 10⁻¹⁵ |
+
+- 234 天中沒有任何一天需要修補 ramp。
+- 與模型原始輸出的最大差異 0.000001 MW 是合成時的浮點誤差，對分數的影響小於 10⁻¹⁰。
 
 ### 預測曲線與實際曲線
 
@@ -759,7 +780,23 @@ for n in 01 02 03 04 05; do jupyter nbconvert --to notebook --execute --inplace 
 ```bash
 python -m pytest tests                                       # 約 3 分鐘
 REGRESSION=quick python -m pytest tests/test_regression.py   # 重跑 6 折，與 output/reference/ 逐值比對
+python main.py verify-curves                                 # 以主辦單位計分程式複核 notebook 04 的回測紀錄
 ```
+
+**以主辦單位的方式計分**：`organizer_score.py` 模擬主辦單位，只看提交的 432 個值。
+- 每天推導 6 個量：窗口內有兩個以上相同的最大值時，取最早的時刻。
+- 有實際值時，再計算 5 個子項與 total_score。
+
+```bash
+python organizer_score.py output/submission/submission_latest.csv              # 每天的 6 個量
+python organizer_score.py 預測.csv 實際.csv                                      # 另外算 5 個子項與 total_score
+```
+
+`verify-curves` 用它重算回測的每一條曲線，確認四件事：
+- 預測曲線推導出的 6 個量，等於合成後的值。
+- 與模型原始輸出相比，只有合成時放寬的 ramp 不同。
+- 實際曲線推導出的 6 個量，等於標籤。
+- 逐窗的 5 個子項與 total_score，等於回測紀錄。
 
 **指令**
 
@@ -772,7 +809,9 @@ REGRESSION=quick python -m pytest tests/test_regression.py   # 重跑 6 折，�
 | `python main.py evaluate [--weather-mode honest\|observed\|forecast]` | 60 折評估 |
 | `python main.py backtest --label X [--set 名稱=值] [--compare-to 紀錄] [--group holdout --confirm-holdout]` | 回測並寫出紀錄，可與參考配對比較 |
 | `python main.py backtest-compare --reference A --candidate B` | 比較兩份回測紀錄 |
-| `python main.py rehearse --data-end YYYY-MM-DD` | 比賽流程演練，並以實際負載評分 |
+| `python main.py rehearse --data-end YYYY-MM-DD` | 比賽流程演練，並以實際負載評分（專案評分函數與主辦單位計分程式各算一次，必須相同） |
+| `python main.py verify-curves [--label X]` | 以主辦單位計分程式複核一份回測紀錄的所有曲線與分數 |
+| `python organizer_score.py 預測.csv [實際.csv]` | 以主辦單位的規則，從 432 個值算 6 個量與 total_score |
 
 ## 7. 比賽當天手動執行
 
@@ -806,7 +845,7 @@ python run_submission.py    # 3. 重新訓練並產出提交檔，約 30 秒至 
 4. 清理並重建中間檔
 5. 重新訓練
 6. 預測 432 筆
-7. 驗證提交檔
+7. 驗證提交檔：讀回檔案，分別用專案的推導程式與 `organizer_score.py` 重算每天 6 個量，都必須與模型預測一致
 8. 接受本次資料
 9. 印出摘要
 
@@ -816,6 +855,7 @@ python run_submission.py    # 3. 重新訓練並產出提交檔，約 30 秒至 
 - CODiS 觀測到哪天
 - 有無走備援
 - 數值範圍
+- 「主辦單位計分程式複核：6 個量與模型預測一致」這一行。若有合成時放寬的 ramp，會列出日期與改動量
 
 **5. 提交** `output/submission/submission_latest.csv`。每次產出另存 `1151001_submission_V{n}.csv`，流水號遞增、不覆蓋。
 
@@ -852,7 +892,7 @@ src/workflow.py 端到端流程（提交、回測、notebook 共用）
 notebooks/     01–05，附執行輸出
 output/        backtest/（回測紀錄）、reference/（回歸參考）、figures/（圖）
 tests/         單元測試與回歸測試
-main.py        指令入口；run_submission.py 比賽當天入口
+main.py        指令入口；run_submission.py 比賽當天入口；organizer_score.py 主辦單位計分程式
 ```
 
 **加入新的外生變數**

@@ -133,6 +133,7 @@ def build_manifest(
     """
     records = []
     for pattern, time_column, kind, key in sources or settings.MANIFEST_SOURCES:
+        pattern = pattern.replace("{LOAD_DATA_FILE}", paths.relative(paths.LOAD_DATA_FILE))
         matched = sorted(paths.PROJECT_ROOT.glob(pattern))
         if not matched:
             raise FileNotFoundError(f"manifest 登記的檔案不存在：{pattern}")

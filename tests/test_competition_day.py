@@ -117,9 +117,9 @@ class TestPrecheck:
 
     def test_missing_load_still_aborts(self) -> None:
         """負載不足沒有備援，一定中止；預報不足則不在中止理由內（走備援）。"""
-        origin = dt.date(2026, 9, 30)
+        origin = dt.date.fromisoformat(settings.DATA_AVAILABLE_END) + dt.timedelta(days=1)   # 負載還沒到的那天
         with pytest.raises(ValueError) as error:
-            checks.precheck(origin, [dt.date(2026, 10, d) for d in (1, 2, 3)])
+            checks.precheck(origin, [origin + dt.timedelta(days=h) for h in (1, 2, 3)])
         message = str(error.value)
         assert "負載只到" in message
         assert "Accuweather" not in message

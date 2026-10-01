@@ -120,8 +120,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         logger.error("請以 --label 指定這次回測的名稱")
         return 1
     folder = backtest.run(args.group, args.label, args.weather_mode,
-                          args.observed_lag_days, args.confirm_holdout,
-                          backtest.parse_overrides(args.set or []))
+                          args.observed_lag_days, backtest.parse_overrides(args.set or []))
     if args.compare_to:
         backtest.compare(Path(args.compare_to), folder)
     return 0
@@ -238,14 +237,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--weather-mode", choices=workflow.WEATHER_MODES, default="honest",
                         help="evaluate／backtest 的氣象模式：honest（預設，與提交時相同）／"
                              "observed（目標日也用觀測，樂觀）／forecast（全部用預報）")
-    parser.add_argument("--group", choices=("tuning", "holdout"), default="tuning",
-                        help="backtest 的回測組：tuning 調參組（預設）／holdout 保留確認組")
+    parser.add_argument("--group", choices=("tuning",), default="tuning",
+                        help="backtest 的回測組（調參組 168 窗）")
     parser.add_argument("--label", help="backtest 這次實驗的名稱（必填）；verify-curves 要複核的紀錄名稱"
                                          "（預設 notebook_04）")
     parser.add_argument("--observed-lag-days", type=int, default=0,
                         help="backtest 模擬 CODiS 觀測只到起點前第幾天（預設 0）")
-    parser.add_argument("--confirm-holdout", action="store_true",
-                        help="確認要使用保留確認組（只在選定最終設定後使用一次）")
     parser.add_argument("--compare-to", help="backtest 完成後與這份參考紀錄配對比較")
     parser.add_argument("--set", action="append", metavar="名稱=值",
                         help="backtest 的設定覆寫（可重複），例如 --set TIMING_LEARNED_MIX=0.3")

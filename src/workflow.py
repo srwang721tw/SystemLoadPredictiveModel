@@ -327,7 +327,7 @@ def evaluate(
 
     Args:
         weather_mode: 見 :data:`WEATHER_MODES`。各模式用同一組折，可直接配對比較。
-        fold_indices: 只跑這些折（依 ``cv.make_folds`` 的順序），供快速回歸使用。
+        fold_indices: 只跑這些折（依 ``settings.BACKTEST_CV60_ORIGINS`` 的順序），供快速回歸使用。
         output_dir: 逐折分數與逐日預測的輸出目錄，None 時採 ``paths.EVALUATION_DIR``。
         folds: 指定的回測窗（``src.evaluation.backtest.windows``），None 時採 60 折。
         observed_lag_days: 模擬 CODiS 觀測只到起點前第幾天（0 = 到起點日）；
@@ -359,7 +359,12 @@ def _evaluate(weather_mode: str, fold_indices: list[int] | None, output_dir: Pat
     from src.models import pipeline
 
     daily, clean, attributes, target_fn, _, _ = prepare_context(weather_mode=weather_mode)
-    folds = folds or cv.make_folds(daily["date"])
+    # 60 折用寫死的起點：資料延長時 cv.make_folds 會重新取樣，前後分數就不可比。
+    folds = folds or [
+        cv.Fold(origin=o, target_dates=tuple(o + dt.timedelta(days=h)
+                                             for h in range(1, settings.PREDICT_HORIZON_DAYS + 1)))
+        for o in (dt.date.fromisoformat(d) for d in settings.BACKTEST_CV60_ORIGINS)
+    ]
     if fold_indices is not None:
         folds = [folds[i] for i in fold_indices]
     logger.info("評估 %d 折：氣象模式 %s（來源 %s），模型 %s",

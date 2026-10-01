@@ -4,12 +4,17 @@
 共 432 期，目標日的氣象只用預報（honest 模式，見 ``workflow.WEATHER_MODES``）。
 以 ``total_score`` 為主要指標，並報告 5 個子項與各子集。
 
-## 兩組回測窗
+## 調參組（``tuning``）
 
-| 組 | 內容 | 用途 |
+三組起點的聯集，共 168 窗，涵蓋全部資料：
+
+| 起點 | 窗數 | 用途 |
 |---|---|---|
-| ``tuning`` 調參組 | 現有 60 折 + 2025 同季節每日窗，共 78 窗 | 所有實驗比較、特徵選擇、超參數 |
-| ``holdout`` 保留確認組 | 目標日 2026-07-01 ~ 09-30，每天一窗 | 選定最終設定後**只用一次** |
+| ``settings.BACKTEST_CV60_ORIGINS`` | 60 | 全年均勻分布 |
+| ``settings.BACKTEST_SEASON_ORIGINS`` | 30 | 與提交日同季節（2025、2026 年 9 月下旬到 10 月上旬） |
+| ``settings.BACKTEST_RECENT_ORIGINS`` | 90 | 最近一季（2026-07 ~ 09），每天一窗 |
+
+三組有 12 個起點重複，只算一次。
 
 ## 選模門檻（:func:`compare`）
 
@@ -50,7 +55,7 @@ from src.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
-GROUPS = ("tuning", "holdout")
+GROUPS = ("tuning",)
 SUBSCORES = ("s_peak_mw", "s_peak_time", "s_ramp_up", "s_ramp_down", "s_under_penalty")
 
 
@@ -68,7 +73,7 @@ def windows(group: str) -> list[cv.Fold]:
     """回傳一組回測窗，依起點日排序。
 
     Args:
-        group: ``"tuning"`` 或 ``"holdout"``。
+        group: 目前只有 ``"tuning"``。
 
     Returns:
         list[cv.Fold]: 每個窗的起點與 3 個目標日。
@@ -76,18 +81,17 @@ def windows(group: str) -> list[cv.Fold]:
     Raises:
         ValueError: 未知的組名。
     """
-    if group == "tuning":
-        origins = {dt.date.fromisoformat(d) for d in settings.BACKTEST_CV60_ORIGINS}
-        origins |= set(_daily_range(*settings.BACKTEST_SEASON_ORIGINS))
-    elif group == "holdout":
-        first, last = (dt.date.fromisoformat(d) for d in settings.BACKTEST_HOLDOUT_TARGETS)
-        horizon = settings.PREDICT_HORIZON_DAYS
-        origins = set(_daily_range(
-            (first - dt.timedelta(days=1)).isoformat(),
-            (last - dt.timedelta(days=horizon)).isoformat()))
-    else:
+    if group != "tuning":
         raise ValueError(f"未知的回測組：{group!r}（支援 {GROUPS}）")
+    origins = {dt.date.fromisoformat(d) for d in settings.BACKTEST_CV60_ORIGINS}
+    origins |= _season_origins()
+    origins |= set(_daily_range(*settings.BACKTEST_RECENT_ORIGINS))
     return [_fold(o) for o in sorted(origins)]
+
+
+def _season_origins() -> set[dt.date]:
+    """同季節窗的起點（``settings.BACKTEST_SEASON_ORIGINS`` 的各區間）。"""
+    return {day for start, end in settings.BACKTEST_SEASON_ORIGINS for day in _daily_range(start, end)}
 
 
 def _holiday_dates() -> set[dt.date]:
@@ -104,7 +108,7 @@ def _holiday_dates() -> set[dt.date]:
 def subsets(folds: list[cv.Fold]) -> dict[str, list[dt.date]]:
     """各報告子集包含的窗（以起點日表示）。子集只篩選已算好的逐窗表，不重跑。
 
-    - 同季節：起點落在 ``settings.BACKTEST_SEASON_ORIGINS``
+    - 同季節：起點落在 ``settings.BACKTEST_SEASON_ORIGINS`` 的任一區間
     - 週四五六：目標日恰為週四、五、六（與 2026-10-01 ~ 03 相同）
     - 含週六：任一目標日為週六
     - 夏月末期：任一目標日落在 ``settings.CV_SPECIAL_LATE_SUMMER``
@@ -116,7 +120,7 @@ def subsets(folds: list[cv.Fold]) -> dict[str, list[dt.date]]:
     Returns:
         dict: ``{子集名稱: 起點日清單}``。
     """
-    season = set(_daily_range(*settings.BACKTEST_SEASON_ORIGINS))
+    season = _season_origins()
     holidays = _holiday_dates()
     return {
         "同季節": [f.origin for f in folds if f.origin in season],
@@ -219,25 +223,6 @@ def _data_fingerprint() -> dict:
             "data_matches_manifest": not changes, "files_changed": changes}
 
 
-def _guard_holdout(confirm: bool, git: dict, label: str) -> None:
-    """保留組只在選定最終設定後使用：沒有明確確認就拒跑，並留下使用紀錄。"""
-    if not confirm:
-        raise PermissionError(
-            "保留確認組只能在選定最終設定後使用一次，不得用於任何調整。"
-            "確定要跑請加上 confirm_holdout=True（CLI：--confirm-holdout）。")
-    log = paths.BACKTEST_DIR / "holdout_usage.jsonl"
-    previous = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()
-                ] if log.exists() else []
-    same = [p for p in previous if p["commit"] == git["commit"]]
-    if same:
-        logger.warning("同一個 commit 已經跑過保留組 %d 次：%s",
-                       len(same), [p["label"] for p in same])
-    log.parent.mkdir(parents=True, exist_ok=True)
-    with log.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps({"time": dt.datetime.now().isoformat(timespec="seconds"),
-                                 "label": label, **git}, ensure_ascii=False) + "\n")
-
-
 def parse_overrides(pairs: list[str]) -> dict:
     """把 CLI 的 ``名稱=值`` 轉成設定覆寫；值以 JSON 解析（失敗時當字串），串列轉成 tuple。
 
@@ -262,17 +247,15 @@ def run(
     label: str,
     weather_mode: str = "honest",
     observed_lag_days: int = 0,
-    confirm_holdout: bool = False,
     overrides: dict | None = None,
 ) -> Path:
     """跑一次回測並寫出紀錄。
 
     Args:
-        group: ``"tuning"`` 或 ``"holdout"``。
+        group: 回測組，見 :func:`windows`。
         label: 這次實驗的名稱，會出現在目錄名與比較報告中。
         weather_mode: 見 ``workflow.WEATHER_MODES``；正式比較一律用 honest。
         observed_lag_days: 模擬 CODiS 觀測只到起點前第幾天（見 ``workflow.evaluate``）。
-        confirm_holdout: 跑保留組時必須為 True。
         overrides: 實驗用的設定覆寫 ``{名稱: 值}``，只在這次回測期間生效，
             結束後還原，並記錄在 ``summary.json``。
 
@@ -280,15 +263,12 @@ def run(
         Path: 紀錄目錄。
 
     Raises:
-        PermissionError: 跑保留組但未確認。
         ValueError: 沒有任何窗可跑。
     """
     from src import workflow
 
     started = time.perf_counter()
     git = _git()
-    if group == "holdout":
-        _guard_holdout(confirm_holdout, git, label)
     fingerprint = _data_fingerprint()
 
     overrides = overrides or {}
@@ -296,16 +276,11 @@ def run(
     if unknown:
         raise ValueError(f"settings 沒有這些名稱：{unknown}")
     saved = {name: getattr(settings, name) for name in overrides}
-    previous_end = settings.DATA_AVAILABLE_END
     try:
         for name, value in overrides.items():
             setattr(settings, name, value)
         if overrides:
             logger.warning("設定覆寫：%s", overrides)
-        if group == "holdout":
-            # 保留組的目標日在開發期截止日之後：暫時放寬截止日並重建中間檔，結束後復原。
-            settings.DATA_AVAILABLE_END = settings.HOLDOUT_DATA_END
-            workflow.build_processed()
         folds, skipped = _available(windows(group), weather_mode, observed_lag_days)
         if not folds:
             raise ValueError(f"{group} 沒有任何窗的資料齊全，無法回測：{skipped}")
@@ -317,9 +292,6 @@ def run(
     finally:
         for name, value in saved.items():
             setattr(settings, name, value)
-        if settings.DATA_AVAILABLE_END != previous_end:
-            settings.DATA_AVAILABLE_END = previous_end
-            workflow.build_processed()
 
     # evaluate 的檔名帶模式名；紀錄目錄內只有一種模式，改成固定檔名。
     (folder / f"folds_{weather_mode}.csv").rename(folder / "folds.csv")

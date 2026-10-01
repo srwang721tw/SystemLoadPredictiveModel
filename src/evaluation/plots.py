@@ -82,8 +82,10 @@ def same_weekday_curves(clean: pl.DataFrame, curves: pl.DataFrame, n_weeks: int 
 def plot_window(curves: pl.DataFrame, origin: dt.date, output_path: Path) -> Path:
     """畫出一個回測窗的三天曲線：實際值與預測值，並標出兩者的日、夜尖峰落點。
 
+    ``actual`` 全為空值時（例如提交日還沒有實際值）只畫預測曲線與其尖峰。
+
     Args:
-        curves: 回測紀錄的 ``curves.csv``。
+        curves: 回測紀錄的 ``curves.csv``，或相同欄位的表。
         origin: 回測窗的起點日。
         output_path: 圖檔路徑。
 
@@ -96,18 +98,25 @@ def plot_window(curves: pl.DataFrame, origin: dt.date, output_path: Path) -> Pat
     figure, axes = plt.subplots(1, len(days), figsize=(6 * len(days), 4.6), sharey=True)
     for ax, day in zip(np.atleast_1d(axes), days):
         part = window.filter(pl.col("ts").dt.date() == day)
+        has_actual = part["actual"].null_count() == 0
         actual, predicted = part["actual"].to_numpy(), part["predicted"].to_numpy()
         for start, end in ((settings.DAY_PEAK_START, settings.DAY_PEAK_END),
                            (settings.NIGHT_PEAK_START, settings.NIGHT_PEAK_END)):
             ax.axvspan(to_minutes(start) / 60, to_minutes(end) / 60, color="#f2e6c9", alpha=0.5, lw=0)
-        ax.plot(hours, actual, color=ACTUAL_COLOUR, lw=2.0, label="實際值")
+        if has_actual:
+            ax.plot(hours, actual, color=ACTUAL_COLOUR, lw=2.0, label="實際值")
         ax.plot(hours, predicted, color=PREDICTED_COLOUR, lw=1.6, label="預測值")
-        truth, guess = curve.verify_day(actual), curve.verify_day(predicted)
+        guess = curve.verify_day(predicted)
+        truth = curve.verify_day(actual) if has_actual else None
         lines = []
         for name, label in (("day", "日尖峰"), ("night", "夜尖峰")):
-            t_true, t_pred = int(truth[f"t_{name}"]), int(guess[f"t_{name}"])
-            ax.plot(t_true / 60, truth[f"p_{name}"], "o", color=ACTUAL_COLOUR, ms=9, mfc="none", mew=2)
+            t_pred = int(guess[f"t_{name}"])
             ax.plot(t_pred / 60, guess[f"p_{name}"], "x", color=PREDICTED_COLOUR, ms=10, mew=2.4)
+            if truth is None:
+                lines.append(f"{label} 預測 {format_hhmm(t_pred)}，{guess[f'p_{name}']:,.0f} MW")
+                continue
+            t_true = int(truth[f"t_{name}"])
+            ax.plot(t_true / 60, truth[f"p_{name}"], "o", color=ACTUAL_COLOUR, ms=9, mfc="none", mew=2)
             lines.append(f"{label} 實際 {format_hhmm(t_true)}／預測 {format_hhmm(t_pred)}"
                          f"（差 {abs(t_true - t_pred) // curve.STEP} 格）")
         ax.set_title(f"{day}（{'一二三四五六日'[day.weekday()]}）\n" + "\n".join(lines), fontsize=10)
@@ -117,7 +126,8 @@ def plot_window(curves: pl.DataFrame, origin: dt.date, output_path: Path) -> Pat
         ax.grid(alpha=0.3)
     np.atleast_1d(axes)[0].set_ylabel("負載（MW）")
     np.atleast_1d(axes)[0].legend(loc="lower right")
-    figure.suptitle(f"起點 {origin}：預測 {days[0]} ～ {days[-1]}（○ 實際尖峰，× 預測尖峰；色帶為尖峰窗口）")
+    legend = "○ 實際尖峰，× 預測尖峰" if window["actual"].null_count() == 0 else "× 預測尖峰"
+    figure.suptitle(f"起點 {origin}：預測 {days[0]} ～ {days[-1]}（{legend}；色帶為尖峰窗口）")
     figure.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(output_path, dpi=120, bbox_inches="tight")

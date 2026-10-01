@@ -20,6 +20,9 @@ logger = get_logger(__name__)
 
 COLUMNS = {"unit_name": pl.Utf8, "forecast_time": pl.Utf8, "forecast_power": pl.Utf8}
 
+TIME_FORMATS = ("%Y/%m/%d %H:%M", "%Y-%m-%d %H:%M:%S")
+"""``forecast_time`` 可接受的寫法。"""
+
 
 def load_hourly() -> pl.DataFrame:
     """讀取 Windy 並驗證結構、去除完全重複的列。
@@ -32,11 +35,19 @@ def load_hourly() -> pl.DataFrame:
     """
     raw = pl.read_csv(paths.WINDY_FILE, infer_schema_length=0)
     checks.check_columns(raw, COLUMNS, "Windy")
-    raw = checks.deduplicate(raw, ["unit_name", "forecast_time"], "Windy")
-    out = raw.with_columns(
-        pl.col("forecast_time").str.to_datetime("%Y/%m/%d %H:%M"),
+    # 時間有兩種寫法（2024/1/1 02:00 與 2024-01-01 02:00:00），先統一再去重，
+    # 同一時刻的兩種寫法才會被視為同一筆。
+    parsed = raw.with_columns(
+        pl.coalesce(
+            pl.col("forecast_time").str.to_datetime(fmt, strict=False)
+            for fmt in TIME_FORMATS
+        ),
         pl.col("forecast_power").cast(pl.Float64),
-    ).sort("unit_name", "forecast_time")
+    )
+    unparsed = raw.filter(parsed["forecast_time"].is_null())
+    if unparsed.height:
+        raise ValueError(f"Windy 有 {unparsed.height} 列時間無法解析，例如 {unparsed['forecast_time'][0]!r}")
+    out = checks.deduplicate(parsed, ["unit_name", "forecast_time"], "Windy").sort("unit_name", "forecast_time")
     logger.info("讀取 Windy：%d 列，%s ~ %s，%d 個機組", out.height,
                 out["forecast_time"].min(), out["forecast_time"].max(), out["unit_name"].n_unique())
     return out

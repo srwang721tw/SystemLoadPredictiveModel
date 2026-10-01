@@ -503,10 +503,10 @@ def test_fill_without_forecast_raises(monkeypatch) -> None:
 
 @needs_accuweather
 class TestWithLocalData:
-    """用本機實際資料：開發期截止日 2026-06-30。"""
+    """用本機實際資料，起點為資料截止日（``settings.DATA_AVAILABLE_END``）。"""
 
-    ORIGIN = dt.date(2026, 6, 30)
-    DAYS = [dt.date(2026, 7, d) for d in (1, 2, 3)]
+    ORIGIN = dt.date.fromisoformat(settings.DATA_AVAILABLE_END)
+    DAYS = [ORIGIN + dt.timedelta(days=1), ORIGIN + dt.timedelta(days=2), ORIGIN + dt.timedelta(days=3)]
 
     @pytest.fixture
     def truncated(self, tmp_path, monkeypatch):
@@ -540,7 +540,7 @@ class TestWithLocalData:
 
     def test_precheck_aborts_two_days_behind(self, truncated) -> None:
         truncated(self.ORIGIN - dt.timedelta(days=2))
-        with pytest.raises(ValueError, match="CODiS 觀測只到 2026-06-28"):
+        with pytest.raises(ValueError, match=f"CODiS 觀測只到 {self.ORIGIN - dt.timedelta(days=2)}"):
             checks.precheck(self.ORIGIN, self.DAYS)
 
 

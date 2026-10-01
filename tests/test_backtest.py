@@ -30,10 +30,10 @@ class TestWindows:
         folds = backtest.windows("tuning")
         origins = {f.origin for f in folds}
         cv60 = {dt.date.fromisoformat(d) for d in settings.BACKTEST_CV60_ORIGINS}
-        season = {f.origin for f in folds
-                  if dt.date(2025, 9, 19) <= f.origin <= dt.date(2025, 10, 9)}
-        assert cv60 <= origins and len(season) == 21
-        assert len(folds) == len(cv60 | season) == 78
+        recent = {f.origin for f in folds if f.origin >= dt.date(2026, 6, 30)}
+        assert cv60 <= origins and len(recent) == 90
+        assert len(folds) == 168
+        assert folds[-1].target_dates[-1] == dt.date(2026, 9, 30)
 
     def test_every_window_predicts_the_next_three_days(self) -> None:
         for group in backtest.GROUPS:
@@ -41,26 +41,14 @@ class TestWindows:
                 assert fold.target_dates == tuple(
                     fold.origin + dt.timedelta(days=h) for h in (1, 2, 3))
 
-    def test_holdout_covers_july_to_september(self) -> None:
-        folds = backtest.windows("holdout")
-        assert len(folds) == 90
-        assert folds[0].target_dates[0] == dt.date(2026, 7, 1)
-        assert folds[-1].target_dates[-1] == dt.date(2026, 9, 30)
-
-    def test_tuning_and_holdout_never_share_a_target_day(self) -> None:
-        """保留組的日子不得出現在任何調參窗中（連訓練都不行：調參窗的歷史只到起點）。"""
-        tuning_last = max(d for f in backtest.windows("tuning") for d in f.target_dates)
-        holdout_first = min(d for f in backtest.windows("holdout") for d in f.target_dates)
-        assert tuning_last <= dt.date.fromisoformat("2026-06-30") < holdout_first
-
     def test_unknown_group_raises(self) -> None:
         with pytest.raises(ValueError, match="未知的回測組"):
             backtest.windows("everything")
 
     @pytest.mark.skipif(not paths.TARGETS_FILE.exists(), reason="需要本機資料")
     def test_cv60_is_frozen_copy_of_make_folds(self) -> None:
-        """寫死的 60 折必須等於開發期資料下 ``make_folds`` 的輸出，歷次分數才可比。"""
-        daily = pl.read_parquet(paths.TARGETS_FILE)
+        """寫死的 60 折必須等於開發期資料（到 2026-06-30）下 ``make_folds`` 的輸出，歷次分數才可比。"""
+        daily = pl.read_parquet(paths.TARGETS_FILE).filter(pl.col("date") <= dt.date(2026, 6, 30))
         expected = [str(f.origin) for f in cv.make_folds(daily["date"])]
         assert list(settings.BACKTEST_CV60_ORIGINS) == expected
 
@@ -70,7 +58,7 @@ class TestSubsets:
     def test_thu_fri_sat_windows_start_on_wednesday(self) -> None:
         groups = backtest.subsets(backtest.windows("tuning"))
         assert groups["週四五六"] and all(o.isoweekday() == 3 for o in groups["週四五六"])
-        assert len(groups["同季節"]) == 21
+        assert len(groups["同季節"]) == 30
 
     def test_holiday_subset_contains_national_day(self) -> None:
         """2025-10-10 國慶日在同季節窗內，起點 10/7~10/9 的窗都含它。"""
@@ -93,7 +81,7 @@ def _synthetic_daily(start: dt.date, n: int) -> pl.DataFrame:
 
 def test_each_window_only_sees_history_up_to_its_origin() -> None:
     """洩漏檢查：每個回測窗交給預測函式的歷史，最後一天恰為起點日（負載到 D-1 23:50）。"""
-    daily = _synthetic_daily(dt.date(2024, 1, 1), 915)   # 到 2026-07-03
+    daily = _synthetic_daily(dt.date(2024, 1, 1), 1004)  # 到 2026-09-30
     seen = []
 
     def predict(history: pl.DataFrame, target_dates: tuple) -> pl.DataFrame:
@@ -101,7 +89,7 @@ def test_each_window_only_sees_history_up_to_its_origin() -> None:
         return history.tail(len(target_dates)).select(TARGET_NAMES)
 
     cv.run_cv(daily, backtest.windows("tuning"), predict)
-    assert len(seen) == 78
+    assert len(seen) == 168
     assert all(last == first - dt.timedelta(days=1) for last, first in seen)
 
 
@@ -120,25 +108,6 @@ def test_windows_without_data_are_listed_not_dropped_silently(tmp_path, monkeypa
         {"origin": "2026-07-03", "reason": "Accuweather 未涵蓋"},
         {"origin": "2026-07-08", "reason": "負載未涵蓋、Accuweather 未涵蓋"},
     ]
-
-
-class TestHoldoutGuard:
-    GIT = {"commit": "abc123", "dirty": False}
-
-    def test_refuses_without_confirmation(self) -> None:
-        with pytest.raises(PermissionError, match="保留確認組"):
-            backtest.run("holdout", "偷看")
-
-    def test_usage_is_logged_and_repeat_warns(self, tmp_path, monkeypatch) -> None:
-        monkeypatch.setattr(paths, "BACKTEST_DIR", tmp_path)
-        warnings = []
-        monkeypatch.setattr(backtest.logger, "warning", lambda *a: warnings.append(a))
-        backtest._guard_holdout(True, self.GIT, "final")
-        assert warnings == []
-        backtest._guard_holdout(True, self.GIT, "final_again")
-        assert len(warnings) == 1
-        log = (tmp_path / "holdout_usage.jsonl").read_text(encoding="utf-8").splitlines()
-        assert [json.loads(line)["label"] for line in log] == ["final", "final_again"]
 
 
 def _paired(diff: float, n_stderr: float) -> PairedComparison:

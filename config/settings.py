@@ -139,7 +139,7 @@ TAU_RAMP_DOWN: Final[float] = 0.50
 TRAIN_START: Final[str] = "2024-01-01"
 """負載資料起始日。"""
 
-DATA_AVAILABLE_END: Final[str] = "2026-06-30"
+DATA_AVAILABLE_END: Final[str] = "2026-09-30"
 """**資料截止日**：負載與觀測只讀到這一天（含），預測起點為其次日。
 
 - 開發期：``"2026-06-30"``
@@ -480,18 +480,19 @@ BACKTEST_CV60_ORIGINS: Final[tuple[str, ...]] = (
 歷次分數才可比（``tests/test_backtest.py`` 確認兩者一致）。
 """
 
-BACKTEST_SEASON_ORIGINS: Final[tuple[str, str]] = ("2025-09-19", "2025-10-09")
-"""調參組中的同季節窗：此區間每天一個起點，目標日 2025-09-20 ~ 10-12。
+BACKTEST_SEASON_ORIGINS: Final[tuple[tuple[str, str], ...]] = (
+    ("2025-09-19", "2025-10-09"),
+    ("2026-09-19", "2026-09-27"),
+)
+"""同季節窗的起點區間（含端點），每天一個起點：目標日落在 9/20 ~ 10/12 前後，與提交日同季節。
 
-60 折散布全年，落在提交日季節的只有 3 折；而 ``t_day`` 的損失有一半以上出自冬季——
-只看全年平均，會挑出「修好冬季」卻對 10 月毫無幫助的變體。
+2025 年 21 窗加上 2026 年 9 月下旬 9 窗，共 30 窗。60 個全年起點落在提交季節的只有 3 窗，
+而 ``t_day`` 的損失有一半以上出自冬季——只看全年平均，會挑出「修好冬季」卻對 10 月
+毫無幫助的變體，所以選模時另外檢查這個子集。
 """
 
-BACKTEST_HOLDOUT_TARGETS: Final[tuple[str, str]] = ("2026-07-01", "2026-09-30")
-"""保留確認組的目標日範圍：起點 6/30 ~ 9/27，每天一窗。只在選定最終設定後使用一次。"""
-
-HOLDOUT_DATA_END: Final[str] = "2026-09-30"
-"""跑保留組時的資料截止日，只在 ``backtest.run(group="holdout")`` 期間生效。"""
+BACKTEST_RECENT_ORIGINS: Final[tuple[str, str]] = ("2026-06-30", "2026-09-27")
+"""最近一季每天一個起點（目標日 2026-07-01 ~ 09-30，90 窗），併入調參組。"""
 
 BACKTEST_SELECTION_SUBSET: Final[str] = "同季節"
 """選模門檻的第二道檢查：全部調參窗改善須大於 ``CV_STDERR_THRESHOLD`` 個標準誤，
@@ -585,12 +586,12 @@ TIMING_NAIVE_PRIOR_WEIGHT: Final[float] = 0.01
 實測讓 ``t_night`` 的平均絕對誤差從 25.9 分惡化到 51.8 分。保留很小的先驗，避免硬零。
 """
 
-TIMING_LEARNED_MIX: Final[float] = 0.5
+TIMING_LEARNED_MIX: Final[float] = 0.7
 """學習式 PMF 在混合中的權重；0 = 只用經驗分布。
 
-單獨使用多類別模型會慘敗（37 類 × 約 850 列撐不起分類器），但在 PMF 層級修正經驗分布
-則穩定改善：60 折 −0.036（5 個種子方向一致）。敏感度帶平滑：0.3 −0.033、0.5 −0.036。
-調參組另測 0.3、0.7 皆未通過門檻，維持 0.5。
+單獨使用多類別模型明顯較差（37 類 × 約 850 列撐不起分類器），但在 PMF 層級修正經驗分布
+則穩定改善。以全部資料的調參組（168 窗）比較 0.3／0.5／0.7：0.7 比 0.5 改善 0.011
+（3 個種子平均，1.21 個標準誤），同季節 30 窗改善 0.048（2.46 個標準誤）；0.3 變差。
 """
 
 TIMING_LEARNED_ROUNDS: Final[int] = 40
@@ -639,7 +640,7 @@ RECURSIVE_FIT_DAYS: Final[int] = 56
 # =============================================================================
 
 MANIFEST_SOURCES: Final[tuple[tuple[str, str | None, str, tuple[str, ...] | None], ...]] = (
-    ("data/raw/訓練數據範例.csv", "Date_Time", "raw", ("Date_Time",)),
+    ("{LOAD_DATA_FILE}", "Date_Time", "raw", ("Date_Time",)),
     ("data/raw/氣象觀測_全欄位.csv", "Date", "raw", ("Date", "stn_ID")),
     ("data/raw/Accuweather/*天氣預測詳細表*.csv", "forecast_time", "raw", ("location_key", "forecast_time")),
     ("data/raw/Accuweather/*區域對照表.csv", None, "raw", ("county", "township")),
@@ -653,6 +654,8 @@ MANIFEST_SOURCES: Final[tuple[tuple[str, str | None, str, tuple[str, ...] | None
     ("config/price_periods.toml", None, "config", None),
 )
 """manifest 要記錄的檔案：``(相對專案根目錄的 glob, 時間欄, 類別, 唯一鍵)``。
+
+``{LOAD_DATA_FILE}`` 代表 ``paths.LOAD_DATA_FILE``：負載檔換成正式資料時，manifest 跟著記錄新檔。
 
 類別：``raw`` 為外部取得的原始檔；``derived`` 由本專案程式產生、可重建；
 ``config`` 為人工整理的規則或清單（已進版控）。

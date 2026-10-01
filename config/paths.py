@@ -44,11 +44,11 @@ LOGS_DIR: Path = PROJECT_ROOT / "logs"
 # 主資料
 # =============================================================================
 
-LOAD_DATA_FILE: Path = RAW_DIR / "訓練數據範例.csv"
+LOAD_DATA_FILE: Path = RAW_DIR / "正式競賽資料.csv"
 """系統瞬時負載，欄位 ``Date_Time, Load_MW``，每 10 分鐘一筆。
 
 開發期為主辦單位提供之範例檔（2024-01-01 ~ 2026-06-30）。
-比賽當天改為 ``RAW_DIR / "正式數據.csv"``，並把 ``settings.DATA_AVAILABLE_END``
+比賽當天改為 ``RAW_DIR / "正式競賽資料.csv"``，並把 ``settings.DATA_AVAILABLE_END``
 改為 ``"2026-09-30"``——只需改這兩處設定，不需改程式。
 """
 

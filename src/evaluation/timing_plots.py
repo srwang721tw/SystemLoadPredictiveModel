@@ -29,7 +29,8 @@ from matplotlib import colors
 from config import paths, settings
 from src.features.targets import day_peak_grid, format_hhmm, night_peak_grid
 
-CJK_FONTS = ["PingFang HK", "Heiti TC", "Arial Unicode MS", "Songti SC"]
+CJK_FONTS = ["PingFang HK", "Heiti TC", "Arial Unicode MS", "Songti SC",
+             "Microsoft JhengHei", "Noto Sans CJK TC", "WenQuanYi Zen Hei"]
 """中文字型候選。未設定時 matplotlib 會把中文畫成方框。"""
 
 

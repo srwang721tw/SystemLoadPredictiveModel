@@ -1,7 +1,7 @@
 # 台灣系統瞬時負載尖峰預測 — 依賴套件
 #
-# 環境：macOS + Python 3.12 + venv
-# LightGBM 在 macOS 需要 OpenMP runtime，安裝前先執行：brew install libomp
+# 環境：Python 3.12 + venv
+# LightGBM 需要 OpenMP runtime；部分系統須另外安裝，見 LightGBM 官方安裝說明。
 #
 # 版本已釘住以確保可重現。
 

@@ -202,12 +202,18 @@ def _available(folds: list[cv.Fold], weather_mode: str, observed_lag_days: int):
 
 
 def _git() -> dict:
-    """目前的 git commit 與追蹤中的檔案是否有未提交變更。"""
+    """目前的 git commit 與追蹤中的檔案是否有未提交變更。
+
+    不在 git 版本庫中、或沒有安裝 git 時，兩個值都是 None，回測照常執行。
+    """
     def run(*args: str) -> str:
         return subprocess.run(["git", *args], cwd=paths.PROJECT_ROOT, capture_output=True,
                               text=True, encoding="utf-8", check=True).stdout.strip()
-    return {"commit": run("rev-parse", "HEAD"),
-            "dirty": bool(run("status", "--porcelain", "--untracked-files=no"))}
+    try:
+        return {"commit": run("rev-parse", "HEAD"),
+                "dirty": bool(run("status", "--porcelain", "--untracked-files=no"))}
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return {"commit": None, "dirty": None}
 
 
 def _data_fingerprint() -> dict:
@@ -557,8 +563,8 @@ def compare(reference: Path, candidate: Path) -> dict:
     }
     lines = [
         f"# {cand_name} vs {ref_name}", "",
-        f"- 參考：`{reference.name}`（commit {ref_summary['git']['commit'][:8]}）",
-        f"- 候選：`{candidate.name}`（commit {cand_summary['git']['commit'][:8]}）",
+        f"- 參考：`{reference.name}`（commit {(ref_summary['git']['commit'] or '不明')[:8]}）",
+        f"- 候選：`{candidate.name}`（commit {(cand_summary['git']['commit'] or '不明')[:8]}）",
         f"- 選模門檻：**{'通過' if passed else '未通過'}**（全體改善 > "
         f"{settings.CV_STDERR_THRESHOLD} 個標準誤，且{settings.BACKTEST_SELECTION_SUBSET}"
         "未顯著變差）", "",

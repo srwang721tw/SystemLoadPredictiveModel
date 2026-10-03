@@ -43,6 +43,9 @@ def setup_logging(
 
     formatter = logging.Formatter(settings.LOG_FORMAT, datefmt=settings.LOG_DATE_FORMAT)
 
+    # 主控台編碼不是 UTF-8 時，無法編碼的字元改以跳脫序列輸出，不讓 logging 出錯
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
     console = logging.StreamHandler(stream=sys.stdout)
     console.setFormatter(formatter)
     root.addHandler(console)

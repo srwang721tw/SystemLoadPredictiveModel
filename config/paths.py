@@ -159,7 +159,7 @@ def relative(path: Path | None) -> str:
     if path is None:
         return ""
     try:
-        return str(Path(path).resolve().relative_to(PROJECT_ROOT))
+        return Path(path).resolve().relative_to(PROJECT_ROOT).as_posix()
     except ValueError:
         return Path(path).name
 

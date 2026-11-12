@@ -79,10 +79,32 @@ def same_weekday_curves(clean: pl.DataFrame, curves: pl.DataFrame, n_weeks: int 
     return curves.join(reference, on=["origin", "ts"], how="left")
 
 
-def plot_window(curves: pl.DataFrame, origin: dt.date, output_path: Path) -> Path:
-    """畫出一個回測窗的三天曲線：實際值與預測值，並標出兩者的日、夜尖峰落點。
+def ramp_steps(values: np.ndarray) -> tuple[int, int]:
+    """當日最大上升與最大下降所在的 10 分鐘區段（第 k 段是第 k 點到第 k+1 點）。
 
-    ``actual`` 全為空值時（例如提交日還沒有實際值）只畫預測曲線與其尖峰。
+    並列時取最早的區段，與 ``curve.verify_day`` 的 ``argmax`` 規則一致。
+
+    Args:
+        values: 長度 144 的負載序列。
+
+    Returns:
+        tuple[int, int]: ``(最大上升的 k, 最大下降的 k)``。
+    """
+    diff = np.diff(values)
+    return int(np.argmax(diff)), int(np.argmin(diff))
+
+
+def _mark_ramp(ax, hours: np.ndarray, values: np.ndarray, step: int, colour: str) -> None:
+    """以粗線段標出一個 10 分鐘區段。"""
+    ax.plot(hours[step:step + 2], values[step:step + 2], color=colour, lw=5, solid_capstyle="round")
+
+
+def plot_window(curves: pl.DataFrame, origin: dt.date, output_path: Path) -> Path:
+    """畫出一個回測窗的三天曲線：實際值與預測值，並標出兩者的日、夜尖峰與最大上升、下降的位置。
+
+    ``actual`` 全為空值時（例如提交日還沒有實際值）只畫預測曲線與其尖峰、升降位置。
+    最大上升、最大下降所在的 10 分鐘區段以粗線段標出；
+    標題中的升降時刻是該區段的起點。
 
     Args:
         curves: 回測紀錄的 ``curves.csv``，或相同欄位的表。
@@ -95,7 +117,7 @@ def plot_window(curves: pl.DataFrame, origin: dt.date, output_path: Path) -> Pat
     window = curves.filter(pl.col("origin") == origin).sort("ts")
     days = window["ts"].dt.date().unique().sort().to_list()
     hours = np.arange(curve.POINTS_PER_DAY) * curve.STEP / 60
-    figure, axes = plt.subplots(1, len(days), figsize=(6 * len(days), 4.6), sharey=True)
+    figure, axes = plt.subplots(1, len(days), figsize=(6 * len(days), 5.2), sharey=True)
     for ax, day in zip(np.atleast_1d(axes), days):
         part = window.filter(pl.col("ts").dt.date() == day)
         has_actual = part["actual"].null_count() == 0
@@ -119,6 +141,17 @@ def plot_window(curves: pl.DataFrame, origin: dt.date, output_path: Path) -> Pat
             ax.plot(t_true / 60, truth[f"p_{name}"], "o", color=ACTUAL_COLOUR, ms=9, mfc="none", mew=2)
             lines.append(f"{label} 實際 {format_hhmm(t_true)}／預測 {format_hhmm(t_pred)}"
                          f"（差 {abs(t_true - t_pred) // curve.STEP} 格）")
+        pred_steps = ramp_steps(predicted)
+        true_steps = ramp_steps(actual) if has_actual else None
+        for i, (name, label) in enumerate((("ramp_up", "最大上升"), ("ramp_down", "最大下降"))):
+            _mark_ramp(ax, hours, predicted, pred_steps[i], PREDICTED_COLOUR)
+            pred_text = f"{format_hhmm(pred_steps[i] * curve.STEP)} {guess[name]:,.0f}"
+            if truth is None:
+                lines.append(f"{label} 預測 {pred_text} MW")
+                continue
+            _mark_ramp(ax, hours, actual, true_steps[i], ACTUAL_COLOUR)
+            lines.append(f"{label} 實際 {format_hhmm(true_steps[i] * curve.STEP)} {truth[name]:,.0f}"
+                         f"／預測 {pred_text} MW")
         ax.set_title(f"{day}（{'一二三四五六日'[day.weekday()]}）\n" + "\n".join(lines), fontsize=10)
         ax.set_xticks(range(0, 25, 3))
         ax.set_xlim(0, 24)
@@ -126,7 +159,10 @@ def plot_window(curves: pl.DataFrame, origin: dt.date, output_path: Path) -> Pat
         ax.grid(alpha=0.3)
     np.atleast_1d(axes)[0].set_ylabel("負載（MW）")
     np.atleast_1d(axes)[0].legend(loc="lower right")
-    legend = "○ 實際尖峰，× 預測尖峰" if window["actual"].null_count() == 0 else "× 預測尖峰"
+    if window["actual"].null_count() == 0:
+        legend = "○ 實際尖峰，× 預測尖峰；粗線段為最大上升、最大下降（黑：實際，紅：預測）"
+    else:
+        legend = "× 預測尖峰；粗線段為最大上升、最大下降"
     figure.suptitle(f"起點 {origin}：預測 {days[0]} ～ {days[-1]}（{legend}；色帶為尖峰窗口）")
     figure.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
